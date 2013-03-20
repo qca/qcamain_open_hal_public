@@ -1018,6 +1018,12 @@ enum {
 #define AR_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL0     0x1d
 #define AR_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL1     0x1e
 #define AR_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL2     0x1b
+/* The above three seems to be functional values for peacock chip. For some
+ * reason these are continued for different boards as simple place holders.
+ * Now continuing to use these and adding the extra definitions for Scropion
+ */
+#define AR_GPIO_OUTPUT_MUX_AS_SWCOM3             0x26 
+
 #define AR_ENABLE_SMARTANTENNA 0x00000001
 
 /* Host GPIO Input State */
@@ -1967,6 +1973,7 @@ enum {
 #define AR_MAC_PCU_LOGIC_ANALYZER_DISBUG20768   0x20000000
 #define AR_MAC_PCU_LOGIC_ANALYZER_DISBUG20803   0x40000000
 #define AR_MAC_PCU_LOGIC_ANALYZER_PSTABUG75996  0x9d500010
+#define AR_MAC_PCU_LOGIC_ANALYZER_VC_MODE       0x9d400010
 
 #define AR_MAC_PCU_LOGIC_ANALYZER_32L           AR_MAC_PCU_OFFSET(MAC_PCU_LOGIC_ANALYZER_32L)
 #define AR_MAC_PCU_LOGIC_ANALYZER_16U           AR_MAC_PCU_OFFSET(MAC_PCU_LOGIC_ANALYZER_16U)
@@ -2028,7 +2035,7 @@ enum {
                                                                      * the use of AR_AGG_WEP_ENABLE.
                                                                      */
 
-#define AR_PCU_MISC_MODE2_PROM_VC_MODE                 0x00000020   /* Enable promiscous in azimuth mode */
+#define AR_PCU_MISC_MODE2_PROM_VC_MODE                 0xa148103b   /* Enable promiscous in azimuth mode */
 
 #define AR_PCU_MISC_MODE2_RESERVED                     0x00000038
 
@@ -2950,7 +2957,10 @@ enum {
 #define AR_SREV_REVISION_WASP_10              0      /* Wasp 1.0 */
 #define AR_SREV_REVISION_WASP_11              1      /* Wasp 1.1 */
 #define AR_SREV_REVISION_WASP_12              2      /* Wasp 1.2 */
+#define AR_SREV_REVISION_WASP_13              3      /* Wasp 1.3 */
 #define AR_SREV_REVISION_WASP_MASK            0xf    /* Wasp revision mask */
+#define AR_SREV_REVISION_WASP_MINOR_MINOR_MASK  0x10000 /* Wasp minor minor revision mask */
+#define AR_SREV_REVISION_WASP_MINOR_MINOR_SHIFT 16      /* Wasp minor minor revision shift */
 
 #define AR_SREV_REVISION_JUPITER_10           0      /* Jupiter 1.0 */
 #define AR_SREV_REVISION_JUPITER_20           2      /* Jupiter 2.0 */

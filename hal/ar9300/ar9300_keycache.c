@@ -172,11 +172,11 @@ ar9300_set_key_cache_entry(struct ath_hal *ah, u_int16_t entry,
 {
     const HAL_CAPABILITIES *p_cap = &AH_PRIVATE(ah)->ah_caps;
     u_int32_t key0, key1, key2, key3, key4;
-    u_int32_t key_type, orig_key_type;
+    u_int32_t key_type;
     u_int32_t xor_mask = xor_key ?
         (KEY_XOR << 24 | KEY_XOR << 16 | KEY_XOR << 8 | KEY_XOR) : 0;
     struct ath_hal_9300 *ahp = AH9300(ah);
-    u_int32_t pwrmgt, pwrmgt_mic, uapsd_cfg;
+    u_int32_t pwrmgt, pwrmgt_mic, uapsd_cfg, psta = 0;
     int is_proxysta_key = k->kv_type & HAL_KEY_PROXY_STA_MASK;
 
 
@@ -250,13 +250,10 @@ ar9300_set_key_cache_entry(struct ath_hal *ah, u_int16_t entry,
     /* Need to preserve the power management bit used by MAC */
     pwrmgt = OS_REG_READ(ah, AR_KEYTABLE_TYPE(entry)) & AR_KEYTABLE_PWRMGT;
     
-    orig_key_type = key_type;
     if (is_proxysta_key) {
         u_int8_t bcast_mac[6] = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
-        if (mac && !adf_os_mem_cmp(mac, bcast_mac, 6)) {
-            key_type &= ~AR_KEYTABLE_DIR_ACK_BIT;
-        } else {
-            key_type |= AR_KEYTABLE_DIR_ACK_BIT;
+        if (!mac || adf_os_mem_cmp(mac, bcast_mac, 6)) {
+            psta = AR_KEYTABLE_DIR_ACK_BIT;
         }
     }
     /*
@@ -265,7 +262,7 @@ ar9300_set_key_cache_entry(struct ath_hal *ah, u_int16_t entry,
      * a 64-bit register).  Don't reorder these writes w/o
      * considering this!
      */
-    if (orig_key_type == AR_KEYTABLE_TYPE_TKIP && IS_MIC_ENABLED(ah)) {
+    if (key_type == AR_KEYTABLE_TYPE_TKIP && IS_MIC_ENABLED(ah)) {
         u_int16_t micentry = entry + 64;  /* MIC goes at slot+64 */
 
         /* Need to preserve the power management bit used by MAC */
@@ -283,7 +280,7 @@ ar9300_set_key_cache_entry(struct ath_hal *ah, u_int16_t entry,
         OS_REG_WRITE(ah, AR_KEYTABLE_KEY3(entry), key3);
         OS_REG_WRITE(ah, AR_KEYTABLE_KEY4(entry), key4);
         OS_REG_WRITE(ah, AR_KEYTABLE_TYPE(entry),
-            key_type | pwrmgt | uapsd_cfg);
+            key_type | pwrmgt | uapsd_cfg | psta);
         ar9300_set_key_cache_entry_mac(ah, entry, mac);
 
         /*
@@ -349,7 +346,7 @@ ar9300_set_key_cache_entry(struct ath_hal *ah, u_int16_t entry,
         OS_REG_WRITE(ah, AR_KEYTABLE_KEY3(entry), key3);
         OS_REG_WRITE(ah, AR_KEYTABLE_KEY4(entry), key4);
         OS_REG_WRITE(ah, AR_KEYTABLE_TYPE(entry),
-            key_type | pwrmgt | uapsd_cfg);
+            key_type | pwrmgt | uapsd_cfg | psta);
 
         /*
         ath_hal_printf(ah, "%s[%d] mac %s proxy %d\n",

@@ -1793,6 +1793,8 @@
 #define AR_SCORPION_CH0_TOP_XPABIASLVL   0x3c0
 #define AR_SCORPION_CH0_TOP_XPABIASLVL_S 6
 
+#define AR_SCORPION_CH0_XTAL            AR_PHY_65NM(overlay_0x16180.Poseidon.ch0_XTAL)
+
 #define AR_HORNET_CH0_THERM             AR_PHY_65NM(overlay_0x16180.Poseidon.ch0_THERM)
 
 #define AR_HORNET_CH0_XTAL              AR_PHY_65NM(overlay_0x16180.Poseidon.ch0_XTAL)

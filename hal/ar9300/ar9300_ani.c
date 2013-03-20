@@ -456,7 +456,7 @@ ar9300_ani_control(struct ath_hal *ah, HAL_ANI_CMD cmd, int param)
     u_int level = param;
     u_int is_on;
 
-	if (chan == NULL || cmd != HAL_ANI_MODE) {
+	if (chan == NULL && cmd != HAL_ANI_MODE) {
 		HALDEBUG(ah, HAL_DEBUG_UNMASKABLE,
             "%s: ignoring cmd 0x%02x - no channel\n", __func__, cmd);
 		return AH_FALSE;

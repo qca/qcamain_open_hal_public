@@ -2083,8 +2083,10 @@ ar9300_power_control_override(struct ath_hal *ah, int frequency,
     int *correction, int *voltage, int *temperature)
 {
     int temp_slope = 0;
+    int temp_slope_1 = 0;
+    int temp_slope_2 = 0;
     ar9300_eeprom_t *eep = &AH9300(ah)->ah_eeprom;
-    int32_t f[8], t[8];
+    int32_t f[8], t[8],t1[3], t2[3];
 	int i;
 
     OS_REG_RMW(ah, AR_PHY_TPC_11_B0,
@@ -2133,20 +2135,41 @@ ar9300_power_control_override(struct ath_hal *ah, int frequency,
 		}
 		else
 		{
-	        if (eep->base_ext2.temp_slope_low != 0) {
-	            t[0] = eep->base_ext2.temp_slope_low;
-	            f[0] = 5180;
-	            t[1] = eep->modal_header_5g.temp_slope;
-	            f[1] = 5500;
-	            t[2] = eep->base_ext2.temp_slope_high;
-	            f[2] = 5785;
-	            temp_slope = interpolate(frequency, f, t, 3);
-	        } else {
-	            temp_slope = eep->modal_header_5g.temp_slope;
-	        }
-		}
-    }
-    
+        if(!AR_SREV_SCORPION(ah)) {
+          if (eep->base_ext2.temp_slope_low != 0) {
+             t[0] = eep->base_ext2.temp_slope_low;
+             f[0] = 5180;
+             t[1] = eep->modal_header_5g.temp_slope;
+             f[1] = 5500;
+             t[2] = eep->base_ext2.temp_slope_high;
+             f[2] = 5785;
+             temp_slope = interpolate(frequency, f, t, 3);
+           } else {
+             temp_slope = eep->modal_header_5g.temp_slope;
+           }
+         } else {
+            /*
+             * Scorpion has individual chain tempslope values
+             */
+             t[0] = eep->base_ext1.tempslopextension[2];
+             t1[0]= eep->base_ext1.tempslopextension[3];
+             t2[0]= eep->base_ext1.tempslopextension[4];
+             f[0] = 5180;
+             t[1] = eep->modal_header_5g.temp_slope;
+             t1[1]= eep->base_ext1.tempslopextension[0];
+             t2[1]= eep->base_ext1.tempslopextension[1];
+             f[1] = 5500;
+             t[2] = eep->base_ext1.tempslopextension[5];
+             t1[2]= eep->base_ext1.tempslopextension[6];
+             t2[2]= eep->base_ext1.tempslopextension[7];
+             f[2] = 5785;
+             temp_slope = interpolate(frequency, f, t, 3);
+             temp_slope_1=interpolate(frequency, f, t1,3);
+             temp_slope_2=interpolate(frequency, f, t2,3);
+       } 
+	 }
+  }
+
     if (!AR_SREV_SCORPION(ah)) {
         OS_REG_RMW_FIELD(ah,
             AR_PHY_TPC_19, AR_PHY_TPC_19_ALPHA_THERM, temp_slope);
@@ -2154,15 +2177,27 @@ ar9300_power_control_override(struct ath_hal *ah, int frequency,
         /*Scorpion has tempSlope register for each chain*/
         /*Check whether temp_compensation feature is enabled or not*/
         if (eep->base_eep_header.feature_enable & 0x1){
-            OS_REG_RMW_FIELD(ah,
-                AR_PHY_TPC_19, AR_PHY_TPC_19_ALPHA_THERM, 
-		eep->base_ext2.temp_slope_low);
-            OS_REG_RMW_FIELD(ah,
-                AR_SCORPION_PHY_TPC_19_B1, AR_PHY_TPC_19_ALPHA_THERM, 
-                temp_slope);
-            OS_REG_RMW_FIELD(ah,
-                AR_SCORPION_PHY_TPC_19_B2, AR_PHY_TPC_19_ALPHA_THERM, 
-                eep->base_ext2.temp_slope_high);
+	    if(frequency < 4000) {
+		    OS_REG_RMW_FIELD(ah,
+				    AR_PHY_TPC_19, AR_PHY_TPC_19_ALPHA_THERM, 
+				    eep->base_ext2.temp_slope_low);
+		    OS_REG_RMW_FIELD(ah,
+				    AR_SCORPION_PHY_TPC_19_B1, AR_PHY_TPC_19_ALPHA_THERM, 
+				    temp_slope);
+		    OS_REG_RMW_FIELD(ah,
+				    AR_SCORPION_PHY_TPC_19_B2, AR_PHY_TPC_19_ALPHA_THERM, 
+				    eep->base_ext2.temp_slope_high);
+	    } else {
+		    OS_REG_RMW_FIELD(ah,
+				    AR_PHY_TPC_19, AR_PHY_TPC_19_ALPHA_THERM, 
+				    temp_slope);
+		    OS_REG_RMW_FIELD(ah,
+				    AR_SCORPION_PHY_TPC_19_B1, AR_PHY_TPC_19_ALPHA_THERM, 
+				    temp_slope_1);
+		    OS_REG_RMW_FIELD(ah,
+				    AR_SCORPION_PHY_TPC_19_B2, AR_PHY_TPC_19_ALPHA_THERM, 
+				    temp_slope_2);
+	    }
         }else {
         	/* If temp compensation is not enabled, set all registers to 0*/
             OS_REG_RMW_FIELD(ah,
@@ -2497,7 +2532,7 @@ ar9300_eeprom_set_power_per_rate_table(
             break;
         case CTL_5GHT20:
         case CTL_2GHT20:
-            for (i = ALL_TARGET_HT20_0_8_16; i <= ALL_TARGET_HT20_21; i++) {
+            for (i = ALL_TARGET_HT20_0_8_16; i <= ALL_TARGET_HT20_23; i++) {
                 p_pwr_array[i] =
                     (u_int8_t)AH_MIN(p_pwr_array[i], min_ctl_power);
 #ifdef ATH_BT_COEX
@@ -4239,6 +4274,13 @@ HAL_BOOL ar9300_tuning_caps_apply(struct ath_hal *ah)
 
         if (AR_SREV_HORNET(ah) || AR_SREV_POSEIDON(ah) || AR_SREV_WASP(ah)) {
             return AH_TRUE;
+        } else if (AR_SREV_SCORPION(ah)) {
+            OS_REG_RMW_FIELD(ah,
+                AR_SCORPION_CH0_XTAL, AR_OSPREY_CHO_XTAL_CAPINDAC,
+                tuning_caps_params);
+            OS_REG_RMW_FIELD(ah,
+                AR_SCORPION_CH0_XTAL, AR_OSPREY_CHO_XTAL_CAPOUTDAC,
+                tuning_caps_params);
         } else {
             OS_REG_RMW_FIELD(ah,
                 AR_OSPREY_CH0_XTAL, AR_OSPREY_CHO_XTAL_CAPINDAC,

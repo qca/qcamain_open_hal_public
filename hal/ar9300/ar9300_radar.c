@@ -242,7 +242,7 @@ ar9300_enable_dfs(struct ath_hal *ah, HAL_PHYERR_PARAM *pe)
     }
     if (pe->pe_prssi != HAL_PHYERR_PARAM_NOVAL) {
         val &= ~AR_PHY_RADAR_0_PRSSI;
-        if (AR_SREV_AR9580(ah) || (AR_SREV_WASP(ah))) {
+        if (AR_SREV_AR9580(ah) || AR_SREV_WASP(ah) || AR_SREV_SCORPION(ah)) {
             if (ah->ah_use_cac_prssi) {
                 val |= SM(AR9300_DFS_PRSSI_CAC, AR_PHY_RADAR_0_PRSSI);
             } else {
@@ -289,7 +289,7 @@ ar9300_enable_dfs(struct ath_hal *ah, HAL_PHYERR_PARAM *pe)
         column 0 is register ID, column 1 is  HT20 value, colum2 is HT40 value
     */
 
-    if (AR_SREV_AR9580(ah) || AR_SREV_WASP(ah) || AR_SREV_OSPREY_22(ah)) {
+    if (AR_SREV_AR9580(ah) || AR_SREV_WASP(ah) || AR_SREV_OSPREY_22(ah) || AR_SREV_SCORPION(ah)) {
         REG_WRITE_ARRAY(&ah9300->ah_ini_dfs,IS_CHAN_HT40(ichan)? 2:1, reg_writes);
     }
 #ifdef ATH_HAL_DFS_CHIRPING_FIX_APH128
@@ -298,7 +298,7 @@ ar9300_enable_dfs(struct ath_hal *ah, HAL_PHYERR_PARAM *pe)
         OS_REG_WRITE(ah, AR_PHY_TIMING6, 0x3140c00a);	
     }
 #endif
-	
+
 }
 
 /*
@@ -419,18 +419,24 @@ void ar9300_adjust_difs(struct ath_hal *ah, u_int32_t val)
 {
     if (val == 0) {
         /*
-         * These are default values for these registers
-         * make sure that they match values in ar9300_osprey_2p2_mac_core[][2]
-         * in ar9300_osprey22.ini
+         * EV 116936:
+         * Restore the register values with that of the HAL structure.
+         * Do not assume and overwrite these values to whatever 
+         * is in ar9300_osprey22.ini.
          */
+        struct ath_hal_9300 *ahp = AH9300(ah);
+        HAL_TX_QUEUE_INFO *qi;
+        int q;
 
         ah->ah_fccaifs = 0;
-        HALDEBUG(ah, HAL_DEBUG_DFS, "%s: set DIFS to default\n", __func__);
-        /*printk("%s: set DIFS to default\n", __func__);*/
-        OS_REG_WRITE(ah, AR_DLCL_IFS(0), AR9300_DEFAULT_DIFS);
-        OS_REG_WRITE(ah, AR_DLCL_IFS(1), AR9300_DEFAULT_DIFS);
-        OS_REG_WRITE(ah, AR_DLCL_IFS(2), AR9300_DEFAULT_DIFS);
-        OS_REG_WRITE(ah, AR_DLCL_IFS(3), AR9300_DEFAULT_DIFS);
+        HALDEBUG(ah, HAL_DEBUG_DFS, "%s: restore DIFS \n", __func__);
+        for (q = 0; q < 4; q++) {
+            qi = &ahp->ah_txq[q];
+            OS_REG_WRITE(ah, AR_DLCL_IFS(q),
+                    SM(qi->tqi_cwmin, AR_D_LCL_IFS_CWMIN)
+                    | SM(qi->tqi_cwmax, AR_D_LCL_IFS_CWMAX)
+                    | SM(qi->tqi_aifs, AR_D_LCL_IFS_AIFS));
+        }
     } else {
         /*
          * These are values from George Lai and are specific to
@@ -473,7 +479,7 @@ ar9300_dfs_cac_war(struct ath_hal *ah, u_int32_t start)
 {
     u_int32_t val;
 
-    if (AR_SREV_AR9580(ah) || (AR_SREV_WASP(ah))) {
+    if (AR_SREV_AR9580(ah) || AR_SREV_WASP(ah) || AR_SREV_SCORPION(ah)) {
         val = OS_REG_READ(ah, AR_PHY_RADAR_0);
         if (start) {
             val &= ~AR_PHY_RADAR_0_PRSSI;

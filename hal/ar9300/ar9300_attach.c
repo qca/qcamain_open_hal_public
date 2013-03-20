@@ -444,6 +444,17 @@ static const struct ath_hal_private ar9300hal = {
         ar9300_stop_pcie_error_monitor,    /* ah_stop_pcie_error_monitor*/
 #endif /* ATH_PCIE_ERROR_MONITOR */
 
+#if ATH_SUPPORT_SPECTRAL        
+        /* Spectral scan */
+        ar9300_configure_spectral_scan,    /* ah_ar_configure_spectral */
+        ar9300_get_spectral_params,        /* ah_ar_get_spectral_config */
+        ar9300_start_spectral_scan,        /* ah_ar_start_spectral_scan */
+        ar9300_stop_spectral_scan,         /* ah_ar_stop_spectral_scan */
+        ar9300_is_spectral_enabled,        /* ah_ar_is_spectral_enabled */
+        ar9300_is_spectral_active,         /* ah_ar_is_spectral_active */
+        ar9300_get_ctl_chan_nf,            /* ah_ar_get_ctl_nf */
+        ar9300_get_ext_chan_nf,            /* ah_ar_get_ext_nf */
+#endif  /*  ATH_SUPPORT_SPECTRAL */ 
 
 
         ar9300_promisc_mode,               /* ah_promisc_mode */
@@ -2654,6 +2665,9 @@ ar9300_fill_capability_info(struct ath_hal *ah)
     /* Enable extension channel DFS support */
     p_cap->hal_use_combined_radar_rssi = AH_TRUE;
     p_cap->hal_ext_chan_dfs_support = AH_TRUE;
+#if ATH_SUPPORT_SPECTRAL
+    p_cap->hal_spectral_scan = AH_TRUE;
+#endif
 
     ahpriv->ah_rfsilent = ar9300_eeprom_get(ahp, EEP_RF_SILENT);
     if (ahpriv->ah_rfsilent & EEP_RFSILENT_ENABLED) {
@@ -3137,7 +3151,7 @@ HAL_BOOL ar9300_rf_gain_cap_apply(struct ath_hal *ah, int is_2GHz)
 {
 	int i, done = 0, i_rx_gain = 32;
     u_int32_t rf_gain_cap;
-    u_int32_t rx_gain_value, rx_gain_address, a_Byte, rx_gain_value_caped;
+    u_int32_t rx_gain_value, a_Byte, rx_gain_value_caped;
 	static u_int32_t  rx_gain_table[RX_GAIN_TABLE_LENGTH * 2][2];
     ar9300_eeprom_t *eep = &AH9300(ah)->ah_eeprom;
     struct ath_hal_9300 *ahp = AH9300(ah);
@@ -3204,7 +3218,6 @@ HAL_BOOL ar9300_rf_gain_cap_apply(struct ath_hal *ah, int is_2GHz)
     
     while (1) 
 	{
-        rx_gain_address = rx_gain_table[i_rx_gain][0];
         rx_gain_value = rx_gain_table[i_rx_gain][1];
         rx_gain_value_caped = rx_gain_value;
         a_Byte = rx_gain_value & (0x000000FF);
@@ -3236,8 +3249,8 @@ HAL_BOOL ar9300_rf_gain_cap_apply(struct ath_hal *ah, int is_2GHz)
             done = 1;
         }
 		HALDEBUG(ah, HAL_DEBUG_RESET,
-			"%s: rx_gain_address: %x, rx_gain_value: %x		rx_gain_value_caped: %x\n",
-			__func__, rx_gain_address, rx_gain_value, rx_gain_value_caped);
+			"%s: rx_gain_address: %x, rx_gain_value: %x	rx_gain_value_caped: %x\n",
+			__func__, rx_gain_table[i_rx_gain][0], rx_gain_value, rx_gain_value_caped);
         if (rx_gain_value_caped != rx_gain_value)
 		{
             rx_gain_table[i_rx_gain][1] = rx_gain_value_caped;
@@ -3659,6 +3672,14 @@ void ar9300_tx_gain_table_apply(struct ath_hal *ah)
                 5);
         }
         break;
+	case 7:
+		if (AR_SREV_WASP(ah)) {
+            INIT_INI_ARRAY(&ahp->ah_ini_modes_txgain, 
+            ar9340Modes_cus227_tx_gain_table_wasp_1p0,
+            sizeof(ar9340Modes_cus227_tx_gain_table_wasp_1p0) /
+            sizeof(ar9340Modes_cus227_tx_gain_table_wasp_1p0[0]), 5);
+		}
+		break;
     }
 }
 

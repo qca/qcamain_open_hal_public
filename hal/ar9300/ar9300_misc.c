@@ -860,14 +860,23 @@ ar9300_get_capability(struct ath_hal *ah, HAL_CAPABILITY_TYPE type,
         *result = p_cap->hal_pcie_lcr_offset;
         return HAL_OK;
     case HAL_CAP_SMARTANTENNA:
-        /* enable smart antenna for Peacock and Wasp
+        /* FIXME A request is pending with h/w team to add feature bit in
+         * caldata to detect if board has smart antenna or not, once added
+         * we need to fix his piece of code to read and return value without
+         * any compile flags
+         */
+#if UMAC_SUPPORT_SMARTANTENNA
+        /* enable smart antenna for  Peacock, Wasp and scorpion 
            for future chips need to modify */
-        if (AR_SREV_AR9580_10(ah) || (AR_SREV_WASP(ah)))
-        {
+        if (AR_SREV_AR9580_10(ah) || (AR_SREV_WASP(ah)) || AR_SREV_SCORPION(ah)) {
             return HAL_OK;
         } else {
             return HAL_ENOTSUPP;
         }
+#else
+        return HAL_ENOTSUPP;
+#endif
+
 #ifdef ATH_TRAFFIC_FAST_RECOVER
     case HAL_CAP_TRAFFIC_FAST_RECOVER:
         if (AR_SREV_HORNET(ah) || AR_SREV_POSEIDON(ah) || AR_SREV_WASP_11(ah)) {
@@ -1804,17 +1813,17 @@ ar9300_ppm_force(struct ath_hal *ah)
 {
     u_int32_t data_fine;
     u_int32_t data4;
-    u_int32_t off1;
-    u_int32_t off2;
+    //u_int32_t off1;
+    //u_int32_t off2;
     HAL_BOOL signed_val = AH_FALSE;
 
-    if (OS_REG_READ(ah, AR_PHY_ANALOG_SWAP) & AR_PHY_SWAP_ALT_CHAIN) {
-        off1 = 0x2000;
-        off2 = 0x1000;
-    } else {
-        off1 = 0x1000;
-        off2 = 0x2000;
-    }
+//    if (OS_REG_READ(ah, AR_PHY_ANALOG_SWAP) & AR_PHY_SWAP_ALT_CHAIN) {
+//        off1 = 0x2000;
+//        off2 = 0x1000;
+//    } else {
+//        off1 = 0x1000;
+//        off2 = 0x2000;
+//    }
     data_fine =
         AR_PHY_CHAN_INFO_GAIN_DIFF_PPM_MASK &
         OS_REG_READ(ah, AR_PHY_CHNINFO_GAINDIFF);
@@ -2565,8 +2574,37 @@ ar9300_init_bt_coex(struct ath_hal *ah)
 
 HAL_STATUS ar9300_set_proxy_sta(struct ath_hal *ah, HAL_BOOL enable)
 {
-    HAL_STATUS retval = HAL_OK;
     u_int32_t val;
+    int wasp_mm_rev;
+
+#define AR_SOC_RST_REVISION_ID      0xB8060090
+#define REG_READ(_reg)              *((volatile u_int32_t *)(_reg))
+    wasp_mm_rev = (REG_READ(AR_SOC_RST_REVISION_ID) &
+            AR_SREV_REVISION_WASP_MINOR_MINOR_MASK) >>
+            AR_SREV_REVISION_WASP_MINOR_MINOR_SHIFT;
+#undef AR_SOC_RST_REVISION_ID
+#undef REG_READ
+
+    /*
+     * Azimuth (ProxySTA) Mode is only supported correctly by
+     * Peacock or WASP 1.3.0.1 or later (hopefully) chips.
+     *
+     * Enable this feature for Scorpion at this time. The silicon
+     * still needs to be validated.
+     */
+    if (!(AH_PRIVATE((ah))->ah_macVersion == AR_SREV_VERSION_AR9580) && 
+        !(AH_PRIVATE((ah))->ah_macVersion == AR_SREV_VERSION_SCORPION) && 
+        !((AH_PRIVATE((ah))->ah_macVersion == AR_SREV_VERSION_WASP) &&  
+          ((AH_PRIVATE((ah))->ah_macRev > AR_SREV_REVISION_WASP_13) ||
+           (AH_PRIVATE((ah))->ah_macRev == AR_SREV_REVISION_WASP_13 && 
+            wasp_mm_rev >= 0 /* 1 */))))
+    {
+        HALDEBUG(ah, HAL_DEBUG_UNMASKABLE, "%s error: current chip (ver 0x%x, "
+                "rev 0x%x, minor minor rev 0x%x) cannot support Azimuth Mode\n",
+                __func__, AH_PRIVATE((ah))->ah_macVersion,
+                AH_PRIVATE((ah))->ah_macRev, wasp_mm_rev);
+        return HAL_ENOTSUPP;
+    }
 
     OS_REG_WRITE(ah,
         AR_MAC_PCU_LOGIC_ANALYZER, AR_MAC_PCU_LOGIC_ANALYZER_PSTABUG75996);
@@ -2582,22 +2620,25 @@ HAL_STATUS ar9300_set_proxy_sta(struct ath_hal *ah, HAL_BOOL enable)
                AR_AZIMUTH_BA_USES_AD1;
         /* turn off filter pass hold (bit 9) */
         val &= ~AR_AZIMUTH_FILTER_PASS_HOLD;
-    } else{
+    } else {
         val &= ~(AR_AZIMUTH_KEY_SEARCH_AD1 | 
                  AR_AZIMUTH_CTS_MATCH_TX_AD2 | 
                  AR_AZIMUTH_BA_USES_AD1);
     }
     OS_REG_WRITE(ah, AR_AZIMUTH_MODE, val);
 
-#if ATH_VC_MODE_PROXY_STA
     /* enable promiscous mode */
     OS_REG_WRITE(ah, AR_RX_FILTER, 
         OS_REG_READ(ah, AR_RX_FILTER) | HAL_RX_FILTER_PROM);
     /* enable promiscous in azimuth mode */
-    OS_REG_WRITE(ah, AR_PCU_MISC_MODE2, 
-        OS_REG_READ(ah, AR_PCU_MISC_MODE2) | AR_PCU_MISC_MODE2_PROM_VC_MODE);
-#endif
-    return retval;
+    OS_REG_WRITE(ah, AR_PCU_MISC_MODE2, AR_PCU_MISC_MODE2_PROM_VC_MODE);
+    OS_REG_WRITE(ah, AR_MAC_PCU_LOGIC_ANALYZER, AR_MAC_PCU_LOGIC_ANALYZER_VC_MODE);
+
+    /* turn on filter pass hold (bit 9) */
+    OS_REG_WRITE(ah, AR_AZIMUTH_MODE,
+        OS_REG_READ(ah, AR_AZIMUTH_MODE) | AR_AZIMUTH_FILTER_PASS_HOLD);
+
+    return HAL_OK;
 }
 
 void ar9300_mat_enable(struct ath_hal *ah, int enable)
@@ -3064,11 +3105,26 @@ ar9300_print_keycache(struct ath_hal *ah)
 HAL_BOOL ar9300_set_smart_antenna(struct ath_hal *ah, HAL_BOOL enable)
 {
     struct ath_hal_9300 *ahp = AH9300(ah);
+
     if (enable) {
         OS_REG_SET_BIT(ah, AR_XRTO, AR_ENABLE_SMARTANTENNA);
     } else {
         OS_REG_CLR_BIT(ah, AR_XRTO, AR_ENABLE_SMARTANTENNA);
     }
+
+    /* if scropion and smart antenna is enabled, write swcom1 with 0x440
+     * and swcom2 with 0
+     * FIXME Ideally these registers need to be made read from caldata.
+     * Until the calibration team gets them, keep them along with board
+     * configuration.
+     */
+    if (enable && AR_SREV_SCORPION(ah) &&
+           (HAL_OK == ar9300_get_capability(ah, HAL_CAP_SMARTANTENNA, 0,0))) {
+
+       OS_REG_WRITE(ah, AR_PHY_SWITCH_COM, 0x440);
+       OS_REG_WRITE(ah, AR_PHY_SWITCH_COM_2, 0);
+    }
+
     ahp->ah_smartantenna_enable = enable;
     return 1;
 }

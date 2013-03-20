@@ -831,7 +831,7 @@ ar9300_init_rate_txpower_stbc(struct ath_hal *ah, const HAL_RATE_TABLE *rt,
 {
 
     struct ath_hal_9300 *ahp = AH9300(ah);
-    int i, j;
+    int i;
     int16_t twice_array_gain, stbc_power = 0;
     u_int8_t mcs_index = 0;
 
@@ -865,9 +865,6 @@ ar9300_init_rate_txpower_stbc(struct ath_hal *ah, const HAL_RATE_TABLE *rt,
 
 
     for (i = rt_ss_offset; i < rt_ss_offset + AR9300_NUM_HT_SS_RATES; i++) {
-        /* Get the correct MCS rate to Power table Index */
-        j = (is40) ? mcs_rate_2_pwr_idx_ht40[mcs_index] :
-                             mcs_rate_2_pwr_idx_ht20[mcs_index];
         switch (chainmask) {
         case OSPREY_1_CHAINMASK:
             ahp->txpower_stbc[i][0] = ahp->txpower[i][0];
@@ -892,9 +889,6 @@ ar9300_init_rate_txpower_stbc(struct ath_hal *ah, const HAL_RATE_TABLE *rt,
     }
 
     for (i = rt_ds_offset; i < rt_ds_offset + AR9300_NUM_HT_DS_RATES; i++) {
-        /* Get the correct MCS rate to Power table Index */
-        j = (is40) ? mcs_rate_2_pwr_idx_ht40[mcs_index] :
-                                   mcs_rate_2_pwr_idx_ht20[mcs_index];
         switch (chainmask) {
         case OSPREY_1_CHAINMASK:
             ahp->txpower_stbc[i][0] = ahp->txpower[i][0];
@@ -919,9 +913,6 @@ ar9300_init_rate_txpower_stbc(struct ath_hal *ah, const HAL_RATE_TABLE *rt,
     }
 
     for (i = rt_ts_offset; i < rt_ts_offset + AR9300_NUM_HT_TS_RATES; i++) {
-        /* Get the correct MCS rate to Power table Index */
-        j = (is40) ? mcs_rate_2_pwr_idx_ht40[mcs_index] :
-                                  mcs_rate_2_pwr_idx_ht20[mcs_index];
         switch (chainmask) {
         case OSPREY_1_CHAINMASK:
             ahp->txpower_stbc[i][0] = ahp->txpower[i][0];
@@ -952,7 +943,7 @@ ar9300_adjust_rate_txpower_cdd(struct ath_hal *ah, const HAL_RATE_TABLE *rt,
 {
 
     struct ath_hal_9300 *ahp = AH9300(ah);
-    int i, j;
+    int i;
     int16_t twice_array_gain, cdd_power = 0;
     u_int8_t mcs_index = 0;
 
@@ -992,9 +983,6 @@ ar9300_adjust_rate_txpower_cdd(struct ath_hal *ah, const HAL_RATE_TABLE *rt,
 
 
     for (i = rt_ss_offset; i < rt_ss_offset + AR9300_NUM_HT_SS_RATES; i++) {
-        /* Get the correct MCS rate to Power table Index */
-        j = (is40) ? mcs_rate_2_pwr_idx_ht40[mcs_index] :
-                                  mcs_rate_2_pwr_idx_ht20[mcs_index];
         switch (chainmask) {
         case OSPREY_1_CHAINMASK:
             break;
@@ -1021,9 +1009,6 @@ ar9300_adjust_rate_txpower_cdd(struct ath_hal *ah, const HAL_RATE_TABLE *rt,
     }
 
     for (i = rt_ds_offset; i < rt_ds_offset + AR9300_NUM_HT_DS_RATES; i++) {
-        /* Get the correct MCS rate to Power table Index */
-        j = (is40) ? mcs_rate_2_pwr_idx_ht40[mcs_index] :
-                                   mcs_rate_2_pwr_idx_ht20[mcs_index];
         switch (chainmask) {
         case OSPREY_1_CHAINMASK:
         case OSPREY_2LOHI_CHAINMASK:

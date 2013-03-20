@@ -252,7 +252,7 @@ typedef struct osprey_BaseExtension_1 {
 	u_int8_t  ant_div_control;
 	u_int8_t  future[MAX_BASE_EXTENSION_FUTURE];
 	u_int8_t  misc_enable;
-	u_int8_t  tempslopextension[MAX_TEMP_SLOPE];
+	int8_t  tempslopextension[MAX_TEMP_SLOPE];
     int8_t  quick_drop_low;           
     int8_t  quick_drop_high;           
 } __packed OSPREY_BASE_EXTENSION_1;

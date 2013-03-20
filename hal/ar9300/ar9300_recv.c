@@ -78,16 +78,13 @@ ar9300_set_rx_abort(struct ath_hal *ah, HAL_BOOL set)
                 ah, AR_OBS_BUS_1, AR_OBS_BUS_1_RX_STATE, 0, AH_WAIT_TIMEOUT);
             /* Wait for Rx state to return to 0 */
             if (!okay) {
-                u_int32_t    reg;
-
                 /* abort: chip rx failed to go idle in 10 ms */
                 OS_REG_CLR_BIT(ah, AR_DIAG_SW,
                     (AR_DIAG_RX_DIS | AR_DIAG_RX_ABORT));
 
-                reg = OS_REG_READ(ah, AR_OBS_BUS_1);
                 HALDEBUG(ah, HAL_DEBUG_RX,
                     "%s: rx failed to go idle in 10 ms RXSM=0x%x\n",
-                    __func__, reg);
+                    __func__, OS_REG_READ(ah, AR_OBS_BUS_1));
 
                 return AH_FALSE; /* failure */
             }

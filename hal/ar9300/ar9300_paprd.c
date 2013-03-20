@@ -2181,6 +2181,11 @@ HAL_STATUS ar9300_paprd_create_curve(struct ath_hal * ah, HAL_CHANNEL * chan,
         /* Compute PA table and gain index */
         status = ar9300_create_pa_curve(ah, &pa_table[0], &small_signal_gain, 
                     &pa_in[0]);
+
+		if (AR_SREV_WASP(ah)) {
+			OS_DELAY(1000);
+		}
+
         if (status != 0) {
             ath_hal_printf(ah, "ERROR:: paprd failed with error code = %d\n",
                 status);

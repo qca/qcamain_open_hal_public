@@ -46,11 +46,13 @@ struct coeff_t {
     int32_t mag_coeff[AR9300_MAX_CHAINS][MAX_MEASUREMENT][MAXIQCAL];
     int32_t phs_coeff[AR9300_MAX_CHAINS][MAX_MEASUREMENT][MAXIQCAL];
     int32_t iqc_coeff[2];
+    int last_nmeasurement;
+    HAL_BOOL last_cal;
 };
 
 static HAL_BOOL ar9300_tx_iq_cal_hw_run(struct ath_hal *ah);
 static void ar9300_tx_iq_cal_post_proc(struct ath_hal *ah,HAL_CHANNEL_INTERNAL *ichan,
-       int iqcal_idx, int max_iqcal, HAL_BOOL is_cal_reusable);
+       int iqcal_idx, int max_iqcal, HAL_BOOL is_cal_reusable, HAL_BOOL apply_last_corr);
 static void ar9300_tx_iq_cal_outlier_detection(struct ath_hal *ah,HAL_CHANNEL_INTERNAL *ichan,
        u_int32_t num_chains, struct coeff_t *coeff, HAL_BOOL is_cal_reusable);
 #if ATH_SUPPORT_CAL_REUSE
@@ -60,7 +62,7 @@ static void ar9300_tx_iq_cal_apply(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *ich
 
 static inline void ar9300_prog_ini(struct ath_hal *ah, struct ar9300_ini_array *ini_arr, int column);
 static inline void ar9300_set_rf_mode(struct ath_hal *ah, HAL_CHANNEL *chan);
-static inline HAL_BOOL ar9300_init_cal(struct ath_hal *ah, HAL_CHANNEL *chan, HAL_BOOL skip_if_none);
+static inline HAL_BOOL ar9300_init_cal(struct ath_hal *ah, HAL_CHANNEL *chan, HAL_BOOL skip_if_none, HAL_BOOL apply_last_corr);
 static inline void ar9300_init_user_settings(struct ath_hal *ah);
 
 #ifdef HOST_OFFLOAD
@@ -965,8 +967,6 @@ ar9300_spur_mitigate_ofdm(struct ath_hal *ah, HAL_CHANNEL *chan)
     int i;
     int mode;
     u_int8_t* spur_chans_ptr;
-    struct ath_hal_9300 *ahp;
-    ahp = AH9300(ah);
 
     if (IS_CHAN_5GHZ(chan)) {
         spur_chans_ptr = ar9300_eeprom_get_spur_chans_ptr(ah, 0);
@@ -1416,7 +1416,11 @@ ar9300_init_pll(struct ath_hal *ah, HAL_CHANNEL *chan)
         OS_DELAY(1000);
     } else if (AR_SREV_WASP(ah) || AR_SREV_SCORPION(ah)) {
 #define SRIF_PLL 1
-        u_int32_t regdata, pll2_divint, pll2_divfrac, pll2_clkmode;
+        u_int32_t regdata, pll2_divint, pll2_divfrac;
+
+#ifndef SRIF_PLL
+	u_int32_t pll2_clkmode;
+#endif
 
 #ifdef SRIF_PLL
         u_int32_t refdiv;
@@ -1446,7 +1450,9 @@ ar9300_init_pll(struct ath_hal *ah, HAL_CHANNEL *chan)
             }
 #endif
         }
+#ifndef SRIF_PLL
         pll2_clkmode = 0x3d;
+#endif
         /* PLL programming through SRIF Local Mode */
         OS_REG_WRITE(ah, AR_RTC_PLL_CONTROL, 0x1142c); /* Bypass mode */
         OS_DELAY(1000);
@@ -1652,6 +1658,93 @@ ar9300_set_reset(struct ath_hal *ah, int type)
     }
 #endif /* AH_SUPPORT_HORNET */
 
+#ifdef AH_SUPPORT_SCORPION
+    if (AR_SREV_SCORPION(ah)) {
+#define DDR_CTL_CONFIG_ADDRESS                                       0xb8000000
+#define DDR_CTL_CONFIG_OFFSET                                        0x0108
+#define DDR_CTL_CONFIG_CLIENT_ACTIVITY_MSB                           29
+#define DDR_CTL_CONFIG_CLIENT_ACTIVITY_LSB                           21
+#define DDR_CTL_CONFIG_CLIENT_ACTIVITY_MASK                          0x3fe00000
+#define DDR_CTL_CONFIG_CLIENT_ACTIVITY_GET(x)                        (((x) & DDR_CTL_CONFIG_CLIENT_ACTIVITY_MASK) >> DDR_CTL_CONFIG_CLIENT_ACTIVITY_LSB)
+#define DDR_CTL_CONFIG_CLIENT_ACTIVITY_SET(x)                        (((x) << DDR_CTL_CONFIG_CLIENT_ACTIVITY_LSB) & DDR_CTL_CONFIG_CLIENT_ACTIVITY_MASK)
+#define MAC_DMA_CFG_ADDRESS                                          0xb8100000
+#define MAC_DMA_CFG_OFFSET                                           0x0014
+
+#define MAC_DMA_CFG_HALT_REQ_MSB                                     11
+#define MAC_DMA_CFG_HALT_REQ_LSB                                     11
+#define MAC_DMA_CFG_HALT_REQ_MASK                                    0x00000800
+#define MAC_DMA_CFG_HALT_REQ_GET(x)                                  (((x) & MAC_DMA_CFG_HALT_REQ_MASK) >> MAC_DMA_CFG_HALT_REQ_LSB)
+#define MAC_DMA_CFG_HALT_REQ_SET(x)                                  (((x) << MAC_DMA_CFG_HALT_REQ_LSB) & MAC_DMA_CFG_HALT_REQ_MASK)
+#define MAC_DMA_CFG_HALT_ACK_MSB                                     12
+#define MAC_DMA_CFG_HALT_ACK_LSB                                     12
+#define MAC_DMA_CFG_HALT_ACK_MASK                                    0x00001000
+#define MAC_DMA_CFG_HALT_ACK_GET(x)                                  (((x) & MAC_DMA_CFG_HALT_ACK_MASK) >> MAC_DMA_CFG_HALT_ACK_LSB)
+#define MAC_DMA_CFG_HALT_ACK_SET(x)                                  (((x) << MAC_DMA_CFG_HALT_ACK_LSB) & MAC_DMA_CFG_HALT_ACK_MASK)
+
+#define RST_RESET                                                    0xB806001c
+#define RTC_RESET                                                    (1<<27)
+
+#define REG_READ(_reg)          *((volatile u_int32_t *)(_reg))
+#define REG_WRITE(_reg, _val)   *((volatile u_int32_t *)(_reg)) = (_val);
+
+#define DDR_REG_READ(_ah, _reg) \
+	    *((volatile u_int32_t *)( DDR_CTL_CONFIG_ADDRESS + (_reg)))
+#define DDR_REG_WRITE(_ah, _reg, _val) \
+	    *((volatile u_int32_t *)(DDR_CTL_CONFIG_ADDRESS + (_reg))) = (_val)
+
+	    OS_REG_WRITE(ah,MAC_DMA_CFG_OFFSET, (OS_REG_READ(ah,MAC_DMA_CFG_OFFSET) & ~MAC_DMA_CFG_HALT_REQ_MASK) |
+			    MAC_DMA_CFG_HALT_REQ_SET(1));
+
+	    {
+		    int count;
+            u_int32_t data;
+
+		    count = 0;
+		    while (!MAC_DMA_CFG_HALT_ACK_GET(OS_REG_READ(ah, MAC_DMA_CFG_OFFSET) ))
+		    {
+			    count++;
+			    if (count > 10) {
+				    ath_hal_printf(ah, "Halt ACK timeout\n");
+				    break;
+			    }
+			    OS_DELAY(10);
+		    }
+
+		    data = DDR_REG_READ(ah,DDR_CTL_CONFIG_OFFSET);
+		    ath_hal_printf(ah, "check DDR Activity - HIGH\n");
+
+		    count = 0;
+		    while (DDR_CTL_CONFIG_CLIENT_ACTIVITY_GET(data)) {
+			    //      AVE_DEBUG(0,"DDR Activity - HIGH\n");
+			    ath_hal_printf(ah, "DDR Activity - HIGH\n");
+			    count++;
+			    OS_DELAY(10);
+			    data = DDR_REG_READ(ah,DDR_CTL_CONFIG_OFFSET);
+			    if (count > 10) {
+				    ath_hal_printf(ah, "DDR Activity timeout\n");
+				    break;
+			    }
+		    }
+	    }
+
+
+	    {
+		    //Force RTC reset
+		    REG_WRITE(RST_RESET, (REG_READ(RST_RESET) | RTC_RESET));
+		    OS_DELAY(10);
+		    REG_WRITE(RST_RESET, (REG_READ(RST_RESET) & ~RTC_RESET));
+		    OS_DELAY(10);
+		    OS_REG_WRITE(ah, AR_RTC_RESET, 0);
+		    OS_DELAY(10);
+		    OS_REG_WRITE(ah, AR_RTC_RESET, 1);
+		    OS_DELAY(10);
+		    ath_hal_printf(ah,"%s: Scorpion SoC RTC reset done.\n", __func__);
+	    }
+#undef REG_READ
+#undef REG_WRITE
+    }
+#endif  /* AH_SUPPORT_SCORPION */
+
     /*
      * Set Mac(BB,Phy) Warm Reset
      */
@@ -1775,6 +1868,7 @@ ar9300_phy_disable(struct ath_hal *ah)
 #define REG_READ(_reg)          *((volatile u_int32_t *)(_reg))
 #define REG_WRITE(_reg, _val)   *((volatile u_int32_t *)(_reg)) = (_val);
 #define ATH_GPIO_OE             0xB8040000
+#define ATH_GPIO_OUT            0xB8040008 /* GPIO Ouput Value reg.*/
     if (AR_SREV_WASP(ah)) {
         if (IS_CHAN_2GHZ((AH_PRIVATE(ah)->ah_curchan))) {
             REG_WRITE(ATH_GPIO_OE, (REG_READ(ATH_GPIO_OE) | (0x1 << 13)));
@@ -1791,7 +1885,7 @@ ar9300_phy_disable(struct ath_hal *ah)
             REG_WRITE(ATH_GPIO_OE, (REG_READ(ATH_GPIO_OE) | (0x1 << 12)));
         }
         /* Turn off JMPST led */
-        REG_WRITE(ATH_GPIO_OE, (REG_READ(ATH_GPIO_OE) | (0x1 << 15)));
+        REG_WRITE(ATH_GPIO_OUT, (REG_READ(ATH_GPIO_OUT) | (0x1 << 15)));
     }
 #undef REG_READ
 #undef REG_WRITE
@@ -2190,6 +2284,7 @@ ar9300_calibration(struct ath_hal *ah,  HAL_CHANNEL *chan, u_int8_t rxchainmask,
 
     *is_cal_done = AH_TRUE;
 
+
     /* XXX: For initial wasp bringup - disable periodic calibration */
     /* Invalid channel check */
     if (ichan == AH_NULL) {
@@ -2577,7 +2672,7 @@ ar9300_process_ini(struct ath_hal *ah, HAL_CHANNEL *chan,
 {
     int reg_writes = 0;
     struct ath_hal_9300 *ahp = AH9300(ah);
-    u_int modes_index, modes_txgaintable_index, freq_index;
+    u_int modes_index, modes_txgaintable_index = 0;
     int i;
     HAL_STATUS status;
     struct ath_hal_private *ahpriv = AH_PRIVATE(ah);
@@ -2599,7 +2694,6 @@ ar9300_process_ini(struct ath_hal *ah, HAL_CHANNEL *chan,
             }
         }
         modes_index = 1;
-        freq_index  = 1;
         break;
 
     case CHANNEL_A_HT40PLUS:
@@ -2614,7 +2708,6 @@ ar9300_process_ini(struct ath_hal *ah, HAL_CHANNEL *chan,
             }
         }
         modes_index = 2;
-        freq_index  = 1;
         break;
 
     case CHANNEL_PUREG:
@@ -2624,7 +2717,6 @@ ar9300_process_ini(struct ath_hal *ah, HAL_CHANNEL *chan,
             modes_txgaintable_index = 8;
         }
         modes_index = 4;
-        freq_index  = 2;
         break;
 
     case CHANNEL_G_HT40PLUS:
@@ -2633,12 +2725,10 @@ ar9300_process_ini(struct ath_hal *ah, HAL_CHANNEL *chan,
             modes_txgaintable_index = 7;
         }
         modes_index = 3;
-        freq_index  = 2;
         break;
 
     case CHANNEL_108G:
         modes_index = 5;
-        freq_index  = 2;
         break;
 
     default:
@@ -3032,14 +3122,12 @@ ar9300_run_init_cals(struct ath_hal *ah, int init_cal_count)
     HAL_CHANNEL_INTERNAL ichan; /* bogus */
     HAL_BOOL is_cal_done;
     HAL_CAL_LIST *curr_cal;
-    const HAL_PERCAL_DATA *cal_data;
     int i;
 
     curr_cal = ahp->ah_cal_list_curr;
     if (curr_cal == AH_NULL) {
         return AH_FALSE;
     }
-    cal_data = curr_cal->cal_data;
     ichan.cal_valid = 0;
 
     for (i = 0; i < init_cal_count; i++) {
@@ -3051,23 +3139,22 @@ ar9300_run_init_cals(struct ath_hal *ah, int init_cal_count)
         {
             HALDEBUG(ah, HAL_DEBUG_CALIBRATE,
                 "%s: Cal %d failed to complete in 100ms.\n",
-                __func__, cal_data->cal_type);
+                __func__, curr_cal->cal_data->cal_type);
             /* Re-initialize list pointers for periodic cals */
             ahp->ah_cal_list = ahp->ah_cal_list_last = ahp->ah_cal_list_curr
                 = AH_NULL;
             return AH_FALSE;
-        }
+        } 
         /* Run this cal */
         ar9300_per_calibration(
             ah, &ichan, ahp->ah_rx_chainmask, curr_cal, &is_cal_done);
         if (is_cal_done == AH_FALSE) {
             HALDEBUG(ah, HAL_DEBUG_CALIBRATE,
                 "%s: Not able to run Init Cal %d.\n", __func__,
-                cal_data->cal_type);
+                curr_cal->cal_data->cal_type);
         }
         if (curr_cal->cal_next) {
             curr_cal = curr_cal->cal_next;
-            cal_data = curr_cal->cal_data;
         }
     }
 
@@ -3187,12 +3274,12 @@ ar9300_restore_rtt_cals(struct ath_hal *ah, HAL_CHANNEL_INTERNAL *ichan)
  */
 static inline HAL_BOOL
 ar9300_init_cal_internal(struct ath_hal *ah, HAL_CHANNEL *chan,
-                         HAL_CHANNEL_INTERNAL *ichan,
-                         HAL_BOOL enable_rtt, HAL_BOOL do_rtt_cal, HAL_BOOL skip_if_none)
+                         HAL_CHANNEL_INTERNAL *ichan, HAL_BOOL enable_rtt, 
+                         HAL_BOOL do_rtt_cal, HAL_BOOL skip_if_none, HAL_BOOL apply_last_iqcorr)
 {
     struct ath_hal_9300 *ahp = AH9300(ah);
     HAL_BOOL txiqcal_success_flag = AH_FALSE;
-    HAL_BOOL cal_done;
+    HAL_BOOL cal_done = AH_FALSE;
     int iqcal_idx = 0;
     HAL_BOOL do_sep_iq_cal = AH_FALSE;
     HAL_BOOL do_agc_cal = do_rtt_cal;
@@ -3281,7 +3368,19 @@ ar9300_init_cal_internal(struct ath_hal *ah, HAL_CHANNEL *chan,
                         (~AR_PHY_TX_IQCAL_CONTROL_0_ENABLE_TXIQ_CAL));
                 }
 #else
-                txiqcal_success_flag = AH_TRUE;
+		if (OS_REG_READ_FIELD(ah,
+					AR_PHY_TX_IQCAL_CONTROL_0(ah),
+					AR_PHY_TX_IQCAL_CONTROL_0_ENABLE_TXIQ_CAL)){
+			if (apply_last_iqcorr == AH_TRUE) {
+				OS_REG_CLR_BIT(ah, AR_PHY_TX_IQCAL_CONTROL_0(ah),
+						AR_PHY_TX_IQCAL_CONTROL_0_ENABLE_TXIQ_CAL);
+				txiqcal_success_flag = AH_FALSE;
+			} else {
+				txiqcal_success_flag = AH_TRUE;
+			}
+		}else{
+			txiqcal_success_flag = AH_FALSE;
+		}
 #endif
                 if (txiqcal_success_flag) {
                     do_agc_cal = AH_TRUE;
@@ -3371,7 +3470,7 @@ ar9300_init_cal_internal(struct ath_hal *ah, HAL_CHANNEL *chan,
              * no chip specific code for Jupiter/Posdeion except for register names.
              */
             if (txiqcal_success_flag) {
-                ar9300_tx_iq_cal_post_proc(ah,ichan, 1, 1,is_cal_reusable);
+                ar9300_tx_iq_cal_post_proc(ah,ichan, 1, 1,is_cal_reusable,false);
             }
     } else {
         if (!txiqcal_success_flag) {
@@ -3383,6 +3482,9 @@ ar9300_init_cal_internal(struct ath_hal *ah, HAL_CHANNEL *chan,
                     "%s: offset calibration failed to complete in 1ms; "
                     "noisy environment?\n", __func__);
                 return AH_FALSE;
+            }
+            if (apply_last_iqcorr == AH_TRUE) {
+                ar9300_tx_iq_cal_post_proc(ah, ichan, 0, 0, is_cal_reusable, AH_TRUE);
             }
         } else {
             for (iqcal_idx=0;iqcal_idx<MAXIQCAL;iqcal_idx++) {
@@ -3402,7 +3504,7 @@ ar9300_init_cal_internal(struct ath_hal *ah, HAL_CHANNEL *chan,
                  * This part of code should be common to all chips,
                  * no chip specific code for Jupiter/Posdeion except for register names.
                  */
-                ar9300_tx_iq_cal_post_proc(ah, ichan, iqcal_idx+1, MAXIQCAL, is_cal_reusable);
+                ar9300_tx_iq_cal_post_proc(ah, ichan, iqcal_idx+1, MAXIQCAL, is_cal_reusable, AH_FALSE);
             }
        }
     }
@@ -3434,6 +3536,12 @@ ar9300_init_cal_internal(struct ath_hal *ah, HAL_CHANNEL *chan,
             "noisy environment?\n", __func__);
         return AH_FALSE;
     }
+
+#if 0
+     /* Beacon stuck fix, refer to EV 120056 */
+    if(IS_CHAN_2GHZ(chan) && AR_SREV_SCORPION(ah))
+        OS_REG_WRITE(ah, AR_PHY_TIMING5, OS_REG_READ(ah,AR_PHY_TIMING5) & ~AR_PHY_TIMING5_CYCPWR_THR1_ENABLE);
+#endif
 
 #if 0
     /* Do PA Calibration */
@@ -3560,7 +3668,7 @@ ar9300_init_cal_internal(struct ath_hal *ah, HAL_CHANNEL *chan,
 }
 
 static inline HAL_BOOL
-ar9300_init_cal(struct ath_hal *ah, HAL_CHANNEL *chan, HAL_BOOL skip_if_none)
+ar9300_init_cal(struct ath_hal *ah, HAL_CHANNEL *chan, HAL_BOOL skip_if_none, HAL_BOOL apply_last_iqcorr)
 {
     HAL_CHANNEL_INTERNAL *ichan = ath_hal_checkchannel(ah, chan);
     HAL_BOOL do_rtt_cal = AH_TRUE;
@@ -3570,7 +3678,7 @@ ar9300_init_cal(struct ath_hal *ah, HAL_CHANNEL *chan, HAL_BOOL skip_if_none)
 
 
 
-    return ar9300_init_cal_internal(ah, chan, ichan, enable_rtt, do_rtt_cal, skip_if_none);
+    return ar9300_init_cal_internal(ah, chan, ichan, enable_rtt, do_rtt_cal, skip_if_none, apply_last_iqcorr);
 }
 
 /* ar9300_reset_cal_valid
@@ -4110,6 +4218,7 @@ ar9300_reset(struct ath_hal *ah, HAL_OPMODE opmode, HAL_CHANNEL *chan,
     u_int32_t               save_force_val, tmp_reg;
 #endif
     HAL_BOOL                    stopped, cal_ret;
+    HAL_BOOL                    apply_last_iqcorr = AH_FALSE;
 
     if (OS_REG_READ(ah, AR_IER) == AR_IER_ENABLE) {
         HALDEBUG(AH_NULL, HAL_DEBUG_UNMASKABLE, "** Reset called with WLAN "
@@ -4139,7 +4248,6 @@ ar9300_reset(struct ath_hal *ah, HAL_OPMODE opmode, HAL_CHANNEL *chan,
     ahp->ah_rx_chainmask = rxchainmask & ap->ah_caps.hal_rx_chain_mask;
     ahp->ah_tx_cal_chainmask = ap->ah_caps.hal_tx_chain_mask;
     ahp->ah_rx_cal_chainmask = ap->ah_caps.hal_rx_chain_mask;
-
     HALASSERT(ar9300_check_op_mode(opmode));
 
     OS_MARK(ah, AH_MARK_RESET, b_channel_change);
@@ -4243,6 +4351,13 @@ ar9300_reset(struct ath_hal *ah, HAL_OPMODE opmode, HAL_CHANNEL *chan,
      * on the nominal, max allowable, and min allowable noise floor values.
      */
     ap->nfp = IS_CHAN_2GHZ(chan) ? &ap->nf_2GHz : &ap->nf_5GHz;
+
+    if (AR_SREV_SCORPION(ah) && curchan && (chan->channel == curchan->channel) &&
+        ((chan->channel_flags & (CHANNEL_ALL|CHANNEL_HALF|CHANNEL_QUARTER)) ==
+         (curchan->channel_flags &
+          (CHANNEL_ALL | CHANNEL_HALF | CHANNEL_QUARTER)))) {
+            apply_last_iqcorr = AH_TRUE;
+    }
  
 #ifndef ATH_NF_PER_CHAN
     /*
@@ -4624,7 +4739,7 @@ ar9300_reset(struct ath_hal *ah, HAL_OPMODE opmode, HAL_CHANNEL *chan,
 
     /* BB Step 7: Calibration */
     ar9300_invalidate_saved_cals(ah, ichan);
-    cal_ret = ar9300_init_cal(ah, chan, AH_FALSE);
+    cal_ret = ar9300_init_cal(ah, chan, AH_FALSE, apply_last_iqcorr);
 
 #if ATH_SUPPORT_MCI
     if (AH_PRIVATE(ah)->ah_caps.hal_mci_support && ahp->ah_mci_ready) {
@@ -4658,7 +4773,7 @@ ar9300_reset(struct ath_hal *ah, HAL_OPMODE opmode, HAL_CHANNEL *chan,
                 HALDEBUG(ah, HAL_DEBUG_BT_COEX, "(MCI) %s: Re-calibrate.\n",
                     __func__);
                 ar9300_invalidate_saved_cals(ah, ichan);
-                cal_ret = ar9300_init_cal(ah, chan, AH_FALSE);
+                cal_ret = ar9300_init_cal(ah, chan, AH_FALSE, ar9300_init_cal);
             }
         }
         ar9300_mci_enable_interrupt(ah);
@@ -4840,7 +4955,11 @@ ar9300_reset(struct ath_hal *ah, HAL_OPMODE opmode, HAL_CHANNEL *chan,
 
     /* H/W Green TX */
     ar9300_control_signals_for_green_tx_mode(ah);
-    /* Smart Antenna */
+    /* Smart Antenna, only for 5GHz on Scropion */
+    if (IS_CHAN_2GHZ((AH_PRIVATE(ah)->ah_curchan)) && AR_SREV_SCORPION(ah)) {
+        ahp->ah_smartantenna_enable = 0;
+    }
+
     ar9300_set_smart_antenna(ah, ahp->ah_smartantenna_enable);
 
 
@@ -5490,7 +5609,7 @@ ar9300_tx_iq_cal_hw_run(struct ath_hal *ah)
 
 static void
 ar9300_tx_iq_cal_post_proc(struct ath_hal *ah,HAL_CHANNEL_INTERNAL *ichan,
-                           int iqcal_idx, int max_iqcal,HAL_BOOL is_cal_reusable)
+                           int iqcal_idx, int max_iqcal,HAL_BOOL is_cal_reusable, HAL_BOOL apply_last_corr)
 {
     int nmeasurement=0, im, ix, iy, temp;
     struct ath_hal_9300     *ahp = AH9300(ah);
@@ -5506,7 +5625,7 @@ ar9300_tx_iq_cal_post_proc(struct ath_hal *ah,HAL_CHANNEL_INTERNAL *ichan,
     };
     int32_t iq_res[6];
     int32_t ch_idx, j;
-    u_int32_t line, num_chains = 0;
+    u_int32_t num_chains = 0;
     static struct coeff_t coeff;
     txiqcal_status[0] = AR_PHY_TX_IQCAL_STATUS_B0(ah);
 
@@ -5514,7 +5633,68 @@ ar9300_tx_iq_cal_post_proc(struct ath_hal *ah,HAL_CHANNEL_INTERNAL *ichan,
         if (ahp->ah_tx_chainmask & (1 << ch_idx)) {
             num_chains++;
         }
-        }
+    }
+
+    if (apply_last_corr) {
+	    if (coeff.last_cal == AH_TRUE) {
+		    int32_t magnitude, phase;
+		    int ch_idx, im;
+		    u_int32_t tx_corr_coeff[MAX_MEASUREMENT][AR9300_MAX_CHAINS] = {
+			    {   AR_PHY_TX_IQCAL_CORR_COEFF_01_B0,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_01_B1,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_01_B2},
+			    {   AR_PHY_TX_IQCAL_CORR_COEFF_01_B0,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_01_B1,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_01_B2},
+			    {   AR_PHY_TX_IQCAL_CORR_COEFF_23_B0,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_23_B1,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_23_B2},
+			    {   AR_PHY_TX_IQCAL_CORR_COEFF_23_B0,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_23_B1,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_23_B2},
+			    {   AR_PHY_TX_IQCAL_CORR_COEFF_45_B0,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_45_B1,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_45_B2},
+			    {   AR_PHY_TX_IQCAL_CORR_COEFF_45_B0,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_45_B1,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_45_B2},
+			    {   AR_PHY_TX_IQCAL_CORR_COEFF_67_B0,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_67_B1,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_67_B2},
+			    {   AR_PHY_TX_IQCAL_CORR_COEFF_67_B0,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_67_B1,
+				    AR_PHY_TX_IQCAL_CORR_COEFF_67_B2},
+		    };
+		    for (ch_idx = 0; ch_idx < num_chains; ch_idx++) {
+			    for (im = 0; im < coeff.last_nmeasurement; im++) {
+				    magnitude = coeff.mag_coeff[ch_idx][im][0];
+				    phase = coeff.phs_coeff[ch_idx][im][0];
+
+#if 0
+				    printf("[ch%d][gain%d]:: mag = %d (/128), phase = %d (/256)\n",
+						    ch_idx, im, magnitude, phase);
+#endif
+
+				    coeff.iqc_coeff[0] = (phase & 0x7f) | ((magnitude & 0x7f) << 7);
+				    if ((im % 2) == 0) {
+					    OS_REG_RMW_FIELD(ah,
+							    tx_corr_coeff[im][ch_idx],
+							    AR_PHY_TX_IQCAL_CORR_COEFF_00_COEFF_TABLE,
+							    coeff.iqc_coeff[0]);
+				    } else {
+					    OS_REG_RMW_FIELD(ah,
+							    tx_corr_coeff[im][ch_idx],
+							    AR_PHY_TX_IQCAL_CORR_COEFF_01_COEFF_TABLE,
+							    coeff.iqc_coeff[0]);
+				    }
+			    }
+		    }
+		    OS_REG_RMW_FIELD(ah, AR_PHY_TX_IQCAL_CONTROL_3,
+				    AR_PHY_TX_IQCAL_CONTROL_3_IQCORR_EN, 0x1);
+	    }
+	    return;
+    }
+
 
     for (ch_idx = 0; ch_idx < num_chains; ch_idx++) {
         nmeasurement = OS_REG_READ_FIELD(ah,
@@ -5531,7 +5711,6 @@ ar9300_tx_iq_cal_post_proc(struct ath_hal *ah,HAL_CHANNEL_INTERNAL *ichan,
             {
                 HALDEBUG(ah, HAL_DEBUG_CALIBRATE,
                     "%s: Tx IQ Cal failed for chain %d.\n", __func__, ch_idx);
-                line = __LINE__;
                 goto TX_IQ_CAL_FAILED_;
             }
 
@@ -5561,7 +5740,6 @@ ar9300_tx_iq_cal_post_proc(struct ath_hal *ah,HAL_CHANNEL_INTERNAL *ichan,
                 HALDEBUG(ah, HAL_DEBUG_CALIBRATE,
                     "%s: Failed in calculation of IQ correction.\n",
                      __func__);
-                line = __LINE__;
                 goto TX_IQ_CAL_FAILED_;
             }
 
@@ -5620,13 +5798,16 @@ ar9300_tx_iq_cal_post_proc(struct ath_hal *ah,HAL_CHANNEL_INTERNAL *ichan,
     }
 
 
+    coeff.last_nmeasurement = nmeasurement;
+    coeff.last_cal = AH_TRUE;
+
     return;
 
 TX_IQ_CAL_FAILED_:
     /* no need to print this, it is AGC failure not chip stuck */
     /*ath_hal_printf(ah, "Tx IQ Cal failed(%d)\n", line);*/
+    coeff.last_cal = AH_FALSE;
     return;
-
 }
 
 

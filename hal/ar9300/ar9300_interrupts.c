@@ -391,6 +391,7 @@ ar9300_get_pending_interrupts(
             HALDEBUG(ah, HAL_DEBUG_UNMASKABLE,
                 "%s: received PCI FATAL interrupt\n", __func__);
 #endif
+           *masked |= HAL_INT_FATAL; /* Set FATAL INT flag here;*/
         }
         if (sync_cause & host1_perr) {
 #if __PKT_SERIOUS_ERRORS__

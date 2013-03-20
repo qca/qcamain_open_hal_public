@@ -112,41 +112,48 @@ ar9300_gpio_cfg_output(
     u_int32_t    gpio_shift;
     u_int8_t    smart_ant = 0;
     static const u_int32_t    mux_signal_conversion_table[] = {
-        /* HAL_GPIO_OUTPUT_MUX_AS_OUTPUT             */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_OUTPUT             */
         AR_GPIO_OUTPUT_MUX_AS_OUTPUT,
-        /* HAL_GPIO_OUTPUT_MUX_AS_PCIE_ATTENTION_LED */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_PCIE_ATTENTION_LED */
         AR_GPIO_OUTPUT_MUX_AS_PCIE_ATTENTION_LED,
-        /* HAL_GPIO_OUTPUT_MUX_AS_PCIE_POWER_LED     */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_PCIE_POWER_LED     */
         AR_GPIO_OUTPUT_MUX_AS_PCIE_POWER_LED,
-        /* HAL_GPIO_OUTPUT_MUX_AS_MAC_NETWORK_LED    */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_MAC_NETWORK_LED    */
         AR_GPIO_OUTPUT_MUX_AS_MAC_NETWORK_LED,
-        /* HAL_GPIO_OUTPUT_MUX_AS_MAC_POWER_LED      */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_MAC_POWER_LED      */
         AR_GPIO_OUTPUT_MUX_AS_MAC_POWER_LED,
-        /* HAL_GPIO_OUTPUT_MUX_AS_WLAN_ACTIVE        */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_WLAN_ACTIVE        */
         AR_GPIO_OUTPUT_MUX_AS_RX_CLEAR_EXTERNAL,
-        /* HAL_GPIO_OUTPUT_MUX_AS_TX_FRAME           */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_TX_FRAME           */
         AR_GPIO_OUTPUT_MUX_AS_TX_FRAME,
-        /* HAL_GPIO_OUTPUT_MUX_AS_MCI_WLAN_DATA      */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_MCI_WLAN_DATA      */
         AR_GPIO_OUTPUT_MUX_AS_MCI_WLAN_DATA,
-        /* HAL_GPIO_OUTPUT_MUX_AS_MCI_WLAN_CLK       */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_MCI_WLAN_CLK       */
         AR_GPIO_OUTPUT_MUX_AS_MCI_WLAN_CLK,
-        /* HAL_GPIO_OUTPUT_MUX_AS_MCI_BT_DATA        */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_MCI_BT_DATA        */
         AR_GPIO_OUTPUT_MUX_AS_MCI_BT_DATA,
-        /* HAL_GPIO_OUTPUT_MUX_AS_MCI_BT_CLK         */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_MCI_BT_CLK         */
         AR_GPIO_OUTPUT_MUX_AS_MCI_BT_CLK,
-        /* HAL_GPIO_OUTPUT_MUX_AS_WL_IN_TX           */
+	            /* HAL_GPIO_OUTPUT_MUX_AS_WL_IN_TX           */
         AR_GPIO_OUTPUT_MUX_AS_WL_IN_TX,
-        /* HAL_GPIO_OUTPUT_MUX_AS_WL_IN_RX           */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_WL_IN_RX           */
         AR_GPIO_OUTPUT_MUX_AS_WL_IN_RX,
-        /* HAL_GPIO_OUTPUT_MUX_AS_BT_IN_TX           */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_BT_IN_TX           */
         AR_GPIO_OUTPUT_MUX_AS_BT_IN_TX,
-        /* HAL_GPIO_OUTPUT_MUX_AS_BT_IN_RX           */
+                    /* HAL_GPIO_OUTPUT_MUX_AS_BT_IN_RX           */
         AR_GPIO_OUTPUT_MUX_AS_BT_IN_RX,
+                    /* HAL_GPIO_OUTPUT_MUX_AS_RUCKUS_STROBE      */
         AR_GPIO_OUTPUT_MUX_AS_RUCKUS_STROBE,
+                    /* HAL_GPIO_OUTPUT_MUX_AS_RUCKUS_DATA        */
         AR_GPIO_OUTPUT_MUX_AS_RUCKUS_DATA,
+                    /* HAL_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL0     */
         AR_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL0,
+                    /* HAL_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL1     */
         AR_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL1,
-        AR_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL2
+                    /* HAL_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL2     */
+        AR_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL2,
+                    /* HAL_GPIO_OUTPUT_MUX_AS_SMARTANT_SWCOM3    */
+        AR_GPIO_OUTPUT_MUX_AS_SWCOM3,
     };
 
     HALASSERT(gpio < AH_PRIVATE(ah)->ah_caps.hal_num_gpio_pins);
@@ -172,7 +179,7 @@ ar9300_gpio_cfg_output(
 
 #if UMAC_SUPPORT_SMARTANTENNA
     /* Get the pin and func values for smart antenna */
-    switch (hal_signal_type)
+    switch (ah_signal_type)
     {
         case AR_GPIO_OUTPUT_MUX_AS_SMARTANT_CTRL0:
             gpio = ATH_GPIOPIN_ANTCHAIN0;
@@ -189,12 +196,19 @@ ar9300_gpio_cfg_output(
             ah_signal_type = ATH_GPIOFUNC_ANTCHAIN2;
             smart_ant = 1;
             break;
+#if ATH_SMARTANTENNA_ROUTE_SWCOM_TO_GPIO
+        case AR_GPIO_OUTPUT_MUX_AS_SWCOM3:
+            gpio = ATH_GPIOPIN_ROUTE_SWCOM3;
+            ah_signal_type = ATH_GPIOFUNC_ROUTE_SWCOM3;
+            smart_ant = 1;
+            break;
+#endif
         default:
             break;
     }
 #endif
 
-    if (smart_ant && AR_SREV_WASP(ah))
+    if (smart_ant && (AR_SREV_WASP(ah) || AR_SREV_SCORPION(ah)))
     {
 #ifdef UMAC_SUPPORT_SMARTANTENNA
         ar9340_soc_gpio_cfg_output_mux(ah, gpio, ah_signal_type);
