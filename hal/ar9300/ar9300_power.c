@@ -677,6 +677,7 @@ ar9300_set_power_mode(struct ath_hal *ah, HAL_POWER_MODE mode, int set_chip)
             OS_REG_WRITE(ah, AR_RTC_KEEP_AWAKE, 0x2);
         }
 #endif
+        ahp->ah_chip_full_sleep = AH_FALSE;
         break;
     case HAL_PM_FULL_SLEEP:
 #if ATH_SUPPORT_MCI
