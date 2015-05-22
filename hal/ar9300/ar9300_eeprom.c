@@ -4378,8 +4378,15 @@ HAL_BOOL ar9300_tuning_caps_apply(struct ath_hal *ah)
     if ((eep->base_eep_header.feature_enable & 0x40) >> 6) {
         tuning_caps_params &= 0x7f;
 
-        if (AR_SREV_HORNET(ah) || AR_SREV_POSEIDON(ah) || AR_SREV_WASP(ah)) {
+        if (AR_SREV_POSEIDON(ah) || AR_SREV_WASP(ah)) {
             return AH_TRUE;
+        } else if (AR_SREV_HORNET(ah)) {
+            OS_REG_RMW_FIELD(ah,
+                AR_HORNET_CH0_XTAL, AR_OSPREY_CHO_XTAL_CAPINDAC,
+                tuning_caps_params);
+            OS_REG_RMW_FIELD(ah,
+                AR_HORNET_CH0_XTAL, AR_OSPREY_CHO_XTAL_CAPOUTDAC,
+                tuning_caps_params);
         } else if (AR_SREV_SCORPION(ah)) {
             OS_REG_RMW_FIELD(ah,
                 AR_SCORPION_CH0_XTAL, AR_OSPREY_CHO_XTAL_CAPINDAC,
